@@ -26,6 +26,7 @@ pub fn main() {
         web.timeout(web.Millis(1000)),
       ]),
     )
+
     web.string(response)
   })
 

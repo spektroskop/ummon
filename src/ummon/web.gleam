@@ -1,3 +1,4 @@
+import extra
 import gleam/bit_array
 import gleam/bool
 import gleam/dynamic.{type Dynamic}
@@ -10,7 +11,11 @@ import gleam/option
 import gleam/result
 import gleam/uri
 
-const default_timeout = 10_000
+const default_config = Config(
+  auto_redirect: True,
+  ca_certs: option.None,
+  timeout: Millis(10_000),
+)
 
 pub type Request(body) =
   request.Request(option.Option(body))
@@ -19,11 +24,11 @@ pub type Response =
   response.Response(BitArray)
 
 pub opaque type Error {
-  UrlError
   BodyError(BitArray)
-  RequestError(Dynamic)
   JsonError(json.DecodeError)
+  RequestError(Dynamic)
   StatusError(Int, BitArray)
+  UriError(String)
 }
 
 pub type Timeout {
@@ -50,70 +55,11 @@ pub fn timeout(timeout: Timeout) -> Option {
   fn(config) { Config(..config, timeout: timeout) }
 }
 
-pub fn request(url: String) -> Result(Request(a), Error) {
-  use request <- result.map(
-    request.to(url)
-    |> result.replace_error(UrlError),
-  )
-
+pub fn request(uri: String) -> Result(Request(a), Error) {
+  use <- extra.return(result.replace_error(_, UriError(uri)))
+  use uri <- result.try(uri.parse(uri))
+  use request <- result.map(request.from_uri(uri))
   request.set_body(request, option.None)
-}
-
-@external(erlang, "glue", "request")
-fn glue_request(
-  config: Config,
-  method: http.Method,
-  uri: String,
-  headers: List(#(String, String)),
-) -> Result(a, Dynamic)
-
-@external(erlang, "glue", "request")
-fn glue_request_with_body(
-  config: Config,
-  method: http.Method,
-  uri: String,
-  headers: List(#(String, String)),
-  content_type: String,
-  body: BitArray,
-) -> Result(a, Dynamic)
-
-fn glue_send(
-  request: Request(BitArray),
-  options: List(Option),
-) -> Result(response.Response(_), Dynamic) {
-  let config =
-    Config(
-      auto_redirect: True,
-      ca_certs: option.None,
-      timeout: Millis(default_timeout),
-    )
-
-  let config = list.fold(options, config, fn(config, update) { update(config) })
-
-  let uri =
-    request.to_uri(request)
-    |> uri.to_string
-
-  case request.body {
-    option.None -> {
-      glue_request(config, request.method, uri, request.headers)
-    }
-
-    option.Some(body) -> {
-      let content_type =
-        request.get_header(request, "content-type")
-        |> result.unwrap("application/octet-stream")
-
-      glue_request_with_body(
-        config,
-        request.method,
-        uri,
-        request.headers,
-        content_type,
-        body,
-      )
-    }
-  }
 }
 
 pub fn send(
@@ -160,4 +106,48 @@ pub fn try_json(
   decoder: dynamic.Decoder(v),
 ) -> Result(v, Error) {
   result.try(response, json(_, decoder))
+}
+
+@external(erlang, "glue", "request")
+fn glue_request(
+  config: Config,
+  method: http.Method,
+  uri: String,
+  headers: List(#(String, String)),
+) -> Result(a, Dynamic)
+
+@external(erlang, "glue", "request")
+fn glue_request_with_body(
+  config: Config,
+  method: http.Method,
+  uri: String,
+  headers: List(#(String, String)),
+  content_type: String,
+  body: BitArray,
+) -> Result(a, Dynamic)
+
+fn glue_send(
+  request: Request(BitArray),
+  options: List(Option),
+) -> Result(response.Response(_), Dynamic) {
+  let config =
+    list.fold(options, default_config, fn(config, update) { update(config) })
+  let uri = uri.to_string(request.to_uri(request))
+
+  case request.body {
+    option.None -> glue_request(config, request.method, uri, request.headers)
+    option.Some(body) -> {
+      let content_type =
+        request.get_header(request, "content-type")
+        |> result.unwrap("application/octet-stream")
+      glue_request_with_body(
+        config,
+        request.method,
+        uri,
+        request.headers,
+        content_type,
+        body,
+      )
+    }
+  }
 }
