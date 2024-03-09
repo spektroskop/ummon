@@ -1,0 +1,4 @@
+/build
+/priv
+/temp
+erl_crash.dump

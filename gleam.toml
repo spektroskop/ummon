@@ -1,0 +1,14 @@
+name = "ummon"
+version = "1.0.0"
+
+[erlang]
+extra_applications = ["inets", "ssl"]
+
+[dependencies]
+gleam_erlang = "~> 0.24"
+gleam_http = "~> 3.5"
+gleam_json = "~> 0.7"
+gleam_stdlib = "~> 0.34 or ~> 1.0"
+lustre = "4.0.0-rc.2"
+mist = "~> 0.17"
+wisp = "~> 0.12"
